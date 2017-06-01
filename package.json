@@ -1,0 +1,17 @@
+{
+  "name": "copy-publish-data",
+  "version": "1.0.0",
+  "description": "A program to copy the publish status from a D2L to a Canvas Course",
+  "main": "copy-publish-settings.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Scott Nicholes and Ben Earl",
+  "license": "MIT",
+  "dependencies": {
+    "async": "^2.4.1",
+    "nightmare": "^2.10.0",
+    "prompt": "^1.0.0",
+    "request": "^2.81.0"
+  }
+}
