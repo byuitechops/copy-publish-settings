@@ -1,8 +1,8 @@
-#Copy-Publish-Data
+# Copy-Publish-Data (A part of course-conversion-tool)
 
-##This program copies the state of whether the modules and sub-items of each module of a D2L course are visible to students or not.  It then copies that state over to the corresponding course for Canvas.
+This program copies the state of whether the modules and sub-items of each module of a D2L course are visible to students or not.  It then copies that state over to the corresponding course for Canvas.
 
-##Information Needed/Set-up
+## Information Needed/Set-up
 - Make an auth.json file and place it in your working directory.  The auth.json file should look like this:
 ````````````````````
 {
