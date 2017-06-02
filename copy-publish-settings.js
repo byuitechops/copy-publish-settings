@@ -8,6 +8,7 @@ var cookieMonster = require('./cookieExtractor');
 function main() {
     var orgUnitId;
     var courseId;
+    var accessToken;
 
     // Get the data we need from the user
     getDataFromSettings(function (error, data) {
@@ -19,13 +20,14 @@ function main() {
 
         orgUnitId = data.orgUnitId;
         courseId = data.course_id;
+        accessToken = data.canvasAccessToken;
 
         formatModules(orgUnitId, function (error, d2LModuleData) {
             if (error) {
                 console.error('There was an error retrieving the module data: ' + error);
             }
 
-            applyChangesToCanvas(d2LModuleData);
+            applyChangesToCanvas(d2LModuleData, courseId, accessToken);
         });
     });
 }
@@ -191,8 +193,49 @@ function getModuleData(orgUnitId, moduleId, callback) {
     });
 }
 
-// applyChangesToCanvas
-function applyChangesToCanvas(d2LModuleData) {
+function applyChangesToCanvas(d2LModuleData, courseId, accessToken) {
+    // First, get all the ids from the Canvas course
+    var allItemsUrl = `https://byui.instructure.com/api/v1/courses/${courseId}/modules?include[]=items&per_page=20&access_token=${accessToken}`;
+    request.get(allItemsUrl, function (error, response, body) {
+        body = JSON.parse(body);
+
+        var canvasSum = 0;
+        var d2lSum = 0;
+        var moduleObjects = [];
+        body.forEach(function (module) {
+            var itemIds = [];
+            if (!module.name.includes('Lesson')) {
+                for (var i = 0; i < module.items.length; i++) {
+                    itemIds.push(module.items[i].id);
+                }
+            } else {
+                for (var i = 1; i < module.items.length; i++) {
+                    itemIds.push(module.items[i].id);
+                }
+            }
+            moduleObject = {
+                id: module.id,
+                itemIds: itemIds
+            }
+
+            canvasSum += itemIds.length;
+            moduleObjects.push(moduleObject);
+        });
+        canvasSum += moduleObjects.length;
+
+        d2LModuleData.forEach(function (d2lModule) {
+            d2lModule.children.forEach(function (child) {
+                if (child.isParent) {
+                    d2lSum += child.children.length;
+                }
+            });
+            d2lSum += d2lModule.children.length;
+        })
+        d2lSum += d2LModuleData.length;
+
+        console.log('Canvas Sum of Ids: ' + canvasSum);
+        console.log('d2l Sum of Ids: ' + d2lSum);
+    });
 
 }
 
