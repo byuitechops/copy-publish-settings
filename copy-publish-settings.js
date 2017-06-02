@@ -20,31 +20,16 @@ function main() {
         orgUnitId = data.orgUnitId;
         courseId = data.course_id;
 
-        formatModules(orgUnitId, function (error, moduleData) {
+        formatModules(orgUnitId, function (error, d2LModuleData) {
             if (error) {
                 console.error('There was an error retrieving the module data: ' + error);
             }
 
-            console.log(moduleData[1].children);
-
-            /*console.log('length of first dimension: ' + moduleData.length);
-
-            var sum = 0;
-            moduleData.forEach(function (module) {
-                module.forEach(function (item) {
-                    if (item.isParent === true) {
-                        sum++;
-                    }
-                })
-            });
-
-            console.log(sum);*/
-
+            applyChangesToCanvas(d2LModuleData);
         });
     });
 }
 
-// getDataFromSettings
 function getDataFromSettings(callback) {
     // Load the settings file
     var settings = fs.readFileSync('copyPublishRunSettings.json', 'utf8');
@@ -69,13 +54,75 @@ function getDataFromSettings(callback) {
     });
 }
 
-// getModuleData
 function formatModules(orgUnitId, callback) {
-    // Make a GET Request URL with the orgUnitId received
-    //var url = `https://byui.brightspace.com/d2l/api/le/1.2/${orgUnitId}/content/root/`;
-    var url = `https://byui.brightspace.com/d2l/api/le/1.24/${orgUnitId}/content/toc`;
+    // Get all the ids of all the modules
+    var moduleIds = getModuleIds(orgUnitId);
 
+    // Get the root modules of the course
+    var parentUrl = `https://byui.brightspace.com/d2l/api/le/1.2/${orgUnitId}/content/root/`;
+    cookieMonster(parentUrl, function (error, response, body) {
+        var parsedParentModules = JSON.parse(body);
+
+        // Iterate through all the root modules in order to reformat them into a final object
+        async.map(parsedParentModules, function (parentModule, parentCallback) {
+            getModuleData(orgUnitId, parentModule.Id, function (error, childModules) {
+                if (error) {
+                    console.error('There was an error with the parent async.map: ' + error);
+                    parentCallback(error, null);
+                }
+
+                // Iterate through all the child modules of each root module.
+                async.map(childModules, function (childModule, childCallback) {
+                    // If this child module is a parent
+                    if (childModule.isParent) {
+                        // Then get the data for its children and append them on to this child
+                        getModuleData(orgUnitId, childModule.id, function (error, moduleMembers) {
+                            if (error) {
+                                console.error('There was an error reading the module member\'s data: ' + error);
+                                childCallback(error, null);
+                            }
+
+                            // Add on a new attribute to the childModule to hold all the children
+                            childModule.children = moduleMembers;
+
+                            childCallback(null, childModule);
+                        });
+                    } else {
+                        // Simply send the child on
+                        childCallback(null, childModule);
+                    }
+                }, function (error, reformattedChildModules) {
+                    if (error) {
+                        console.error('There was an error in generating the module data: ' + error);
+                        callback(error, null);
+                    }
+
+                    // Make the format for our final object
+                    var reformattedParentModule = {
+                        title: parentModule.Title,
+                        id: parentModule.Id,
+                        isHidden: parentModule.IsHidden,
+                        isParent: true,
+                        children: reformattedChildModules
+                    }
+
+                    parentCallback(null, reformattedParentModule);
+                });
+            });
+        }, function (error, reformattedParentModules) {
+            if (error) {
+                callback(error, null);
+            }
+
+            // Finally, send back the finished product
+            callback(null, reformattedParentModules);
+        });
+    });
+}
+
+function getModuleIds(orgUnitId) {
     // Perform the GET Request
+    var url = `https://byui.brightspace.com/d2l/api/le/1.24/${orgUnitId}/content/toc`;
     cookieMonster(url, function (error, response, body) {
         if (error) {
             console.error('There was an error: ' + error);
@@ -83,82 +130,23 @@ function formatModules(orgUnitId, callback) {
         }
 
         var modules = JSON.parse(body);
+        var moduleIds = []
 
-        var moduleIds = generateModuleIds(modules);
-
-        var parentUrl = `https://byui.brightspace.com/d2l/api/le/1.2/${orgUnitId}/content/root/`;
-
-        cookieMonster(parentUrl, function (error, response, body) {
-            var parsedParentModules = JSON.parse(body);
-
-            async.map(parsedParentModules, function (parentModule, parentCallback) {
-                getModuleData(orgUnitId, parentModule.Id, function (error, childModules) {
-                    if (error) {
-                        console.error('There was an error with the parent async.map: ' + error);
-                        parentCallback(error, null);
+        recursive(modules.Modules);
+        // Recursively search through all the objects, gleaning each moduleId
+        function recursive(moduleArray) {
+            if (moduleArray) {
+                moduleArray.forEach(obj => {
+                    if (obj.ModuleId) {
+                        moduleIds.push(obj.ModuleId)
                     }
-
-                    // We will make a new Object for Each of the objects given us
-                    async.map(childModules, function (childModule, childCallback) {
-                        if (childModule.isParent) {
-                            getModuleData(orgUnitId, childModule.id, function (error, moduleMembers) {
-                                if (error) {
-                                    console.error('There was an error reading the module member\'s data: ' + error);
-                                    childCallback(error, null);
-                                }
-
-                                childModule.children = moduleMembers;
-
-                                childCallback(null, childModule);
-                            });
-                        } else {
-                            childCallback(null, childModule);
-                        }
-                    }, function (error, reformattedChildModules) {
-                        if (error) {
-                            console.error('There was an error in generating the module data: ' + error);
-                            callback(error, null);
-                        }
-
-                        var reformattedParentModule = {
-                            title: parentModule.Title,
-                            id: parentModule.Id,
-                            isHidden: parentModule.IsHidden,
-                            isParent: true,
-                            children: reformattedChildModules
-                        }
-
-                        parentCallback(null, reformattedParentModule);
-                    });
-                });
-            }, function (error, reformattedParentModules) {
-                if (error) {
-                    callback(error, null);
-                }
-
-                callback(null, reformattedParentModules);
-            });
-        });
-    });
-}
-
-function generateModuleIds(modules) {
-    var moduleIds = []
-
-    recursive(modules.Modules);
-    // Recursively search through all the objects, gleaning each moduleId
-    function recursive(moduleArray) {
-        if (moduleArray) {
-            moduleArray.forEach(obj => {
-                if (obj.ModuleId) {
-                    moduleIds.push(obj.ModuleId)
-                }
-                recursive(obj.Modules)
-            })
+                    recursive(obj.Modules)
+                })
+            }
         }
-    }
 
-    return moduleIds;
+        return moduleIds;
+    });
 }
 
 function getModuleData(orgUnitId, moduleId, callback) {
@@ -171,11 +159,14 @@ function getModuleData(orgUnitId, moduleId, callback) {
 
         reformattedModules = parsedModules.map(function (currentObj) {
             var keys = Object.keys(currentObj);
+
+            // If the current object has children
             if (keys.includes('Structure')) {
                 var reformattedModule = {
                     title: currentObj.Title,
                     id: currentObj.Id,
                     isHidden: currentObj.IsHidden,
+                    // Indicate that this module is a parent
                     isParent: true
                 }
 
@@ -185,6 +176,7 @@ function getModuleData(orgUnitId, moduleId, callback) {
                     title: currentObj.Title,
                     id: currentObj.Id,
                     isHidden: currentObj.IsHidden,
+                    // Indicate that this module has no children
                     isParent: false
                 }
 
@@ -197,5 +189,8 @@ function getModuleData(orgUnitId, moduleId, callback) {
 }
 
 // applyChangesToCanvas
+function applyChangesToCanvas(d2LModuleData) {
+
+}
 
 main();
