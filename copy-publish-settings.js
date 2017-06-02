@@ -56,71 +56,74 @@ function getDataFromSettings(callback) {
 
 function formatModules(orgUnitId, callback) {
     // Get all the ids of all the modules
-    var moduleIds = getModuleIds(orgUnitId);
+    getModuleIds(orgUnitId, function (error, moduleIds) {
 
-    // Get the root modules of the course
-    var parentUrl = `https://byui.brightspace.com/d2l/api/le/1.2/${orgUnitId}/content/root/`;
-    cookieMonster(parentUrl, function (error, response, body) {
-        var parsedParentModules = JSON.parse(body);
+        // Get the root modules of the course
+        var parentUrl = `https://byui.brightspace.com/d2l/api/le/1.2/${orgUnitId}/content/root/`;
+        cookieMonster(parentUrl, function (error, response, body) {
+            var parsedParentModules = JSON.parse(body);
 
-        // Iterate through all the root modules in order to reformat them into a final object
-        async.map(parsedParentModules, function (parentModule, parentCallback) {
-            getModuleData(orgUnitId, parentModule.Id, function (error, childModules) {
+            // Iterate through all the root modules in order to reformat them into a final object
+            async.map(parsedParentModules, function (parentModule, parentCallback) {
+                getModuleData(orgUnitId, parentModule.Id, function (error, childModules) {
+                    if (error) {
+                        console.error('There was an error with the parent async.map: ' + error);
+                        parentCallback(error, null);
+                    }
+
+                    // Iterate through all the child modules of each root module.
+                    async.map(childModules, function (childModule, childCallback) {
+
+                        // If this child module is a parent
+                        if (childModule.isParent) {
+
+                            // Then get the data for its children and append them on to this child
+                            getModuleData(orgUnitId, childModule.id, function (error, moduleMembers) {
+                                if (error) {
+                                    console.error('There was an error reading the module member\'s data: ' + error);
+                                    childCallback(error, null);
+                                }
+
+                                // Add on a new attribute to the childModule to hold all the children
+                                childModule.children = moduleMembers;
+
+                                childCallback(null, childModule);
+                            });
+                        } else {
+                            // Simply send the child on
+                            childCallback(null, childModule);
+                        }
+                    }, function (error, reformattedChildModules) {
+                        if (error) {
+                            console.error('There was an error in generating the module data: ' + error);
+                            callback(error, null);
+                        }
+
+                        // Make the format for our final object
+                        var reformattedParentModule = {
+                            title: parentModule.Title,
+                            id: parentModule.Id,
+                            isHidden: parentModule.IsHidden,
+                            isParent: true,
+                            children: reformattedChildModules
+                        }
+
+                        parentCallback(null, reformattedParentModule);
+                    });
+                });
+            }, function (error, reformattedParentModules) {
                 if (error) {
-                    console.error('There was an error with the parent async.map: ' + error);
-                    parentCallback(error, null);
+                    callback(error, null);
                 }
 
-                // Iterate through all the child modules of each root module.
-                async.map(childModules, function (childModule, childCallback) {
-                    // If this child module is a parent
-                    if (childModule.isParent) {
-                        // Then get the data for its children and append them on to this child
-                        getModuleData(orgUnitId, childModule.id, function (error, moduleMembers) {
-                            if (error) {
-                                console.error('There was an error reading the module member\'s data: ' + error);
-                                childCallback(error, null);
-                            }
-
-                            // Add on a new attribute to the childModule to hold all the children
-                            childModule.children = moduleMembers;
-
-                            childCallback(null, childModule);
-                        });
-                    } else {
-                        // Simply send the child on
-                        childCallback(null, childModule);
-                    }
-                }, function (error, reformattedChildModules) {
-                    if (error) {
-                        console.error('There was an error in generating the module data: ' + error);
-                        callback(error, null);
-                    }
-
-                    // Make the format for our final object
-                    var reformattedParentModule = {
-                        title: parentModule.Title,
-                        id: parentModule.Id,
-                        isHidden: parentModule.IsHidden,
-                        isParent: true,
-                        children: reformattedChildModules
-                    }
-
-                    parentCallback(null, reformattedParentModule);
-                });
+                // Finally, send back the finished product
+                callback(null, reformattedParentModules);
             });
-        }, function (error, reformattedParentModules) {
-            if (error) {
-                callback(error, null);
-            }
-
-            // Finally, send back the finished product
-            callback(null, reformattedParentModules);
         });
     });
 }
 
-function getModuleIds(orgUnitId) {
+function getModuleIds(orgUnitId, callback) {
     // Perform the GET Request
     var url = `https://byui.brightspace.com/d2l/api/le/1.24/${orgUnitId}/content/toc`;
     cookieMonster(url, function (error, response, body) {
@@ -145,7 +148,7 @@ function getModuleIds(orgUnitId) {
             }
         }
 
-        return moduleIds;
+        callback(null, moduleIds);
     });
 }
 
