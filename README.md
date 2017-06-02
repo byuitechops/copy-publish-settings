@@ -1,4 +1,4 @@
-# Copy-Publish-Data (A part of course-conversion-tool)
+# Copy-Publish-Settings (A part of course-conversion-tool)
 
 This program copies the state of whether the modules and sub-items of each module of a D2L course are visible to students or not.  It then copies that state over to the corresponding course for Canvas.
 
