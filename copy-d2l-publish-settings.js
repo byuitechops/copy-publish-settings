@@ -1,3 +1,14 @@
+/************************************************************
+ * Copy D2L Publish Settings
+ * 
+ * This program copies the 'IsHidden' attribute from D2L
+ * Courses.  The 'IsHidden' attribute determines whether
+ * students are able to view the specific content in the 
+ * modules of a D2L course.
+ * 
+ * Author: Scott Nicholes
+ ***********************************************************/
+
 var prompt = require('prompt');
 var fs = require('fs');
 var request = require('request');
@@ -5,7 +16,7 @@ var async = require('async');
 var cookieMonster = require('./cookieExtractor');
 
 // main
-function main() {
+function main(callback) {
     var orgUnitId;
     var courseId;
     var accessToken;
@@ -24,32 +35,60 @@ function main() {
 
         formatModules(orgUnitId, function (error, d2LModuleData) {
             if (error) {
-                console.error('There was an error retrieving the module data: ' + error);
+                callback(error, null);
+                return;
             }
 
-            applyChangesToCanvas(d2LModuleData, courseId, accessToken);
+            // We now have the module data
+            callback(null, d2LModuleData);
+            return;
+
+            // Uncomment to apply the changes to a canvas course
+            //applyChangesToCanvas(d2LModuleData, courseId, accessToken);
         });
     });
 }
 
 function getDataFromSettings(callback) {
     // Load the settings file
-    var settings = fs.readFileSync('copyPublishRunSettings.json', 'utf8');
+    var settings = fs.readFileSync('auth.json', 'utf8');
 
     // Parse the settings file
     settings = JSON.parse(settings);
 
+    // This is the prompt
+    var settingsPrompt = {
+        properties: {
+            orgUnitId: {
+                description: "Enter D2L Org Unit ID Number to copy from",
+                type: "string",
+                default: settings.orgUnitId
+            },
+            course_id: {
+                description: "Enter Canvas Course_Id to apply settings to",
+                type: "string",
+                default: settings.course_id
+            },
+            canvasAccessToken: {
+                description: "Enter the Canvas Access Token for the course to apply settings to",
+                type: "string",
+                default: settings.canvasAccessToken
+            }
+        }
+    }
+
+
     // Run prompt with the Settings file
     prompt.start();
-    prompt.get(settings, function (error, response) {
+    prompt.get(settingsPrompt, function (error, response) {
         if (error) {
             callback(error);
         }
 
-        // Save the responses as defaults
-        settings.properties.orgUnitId.default = response.orgUnitId;
-        settings.properties.course_id.default = response.course_id;
-        fs.writeFileSync('copyPublishRunSettings.json', JSON.stringify(settings));
+        // Save the responses back to the settings
+        settings.orgUnitId = response.orgUnitId;
+        settings.course_id = response.course_id;
+        fs.writeFileSync('auth.json', JSON.stringify(settings));
 
         // Send the reponses back to main
         callback(null, response);
