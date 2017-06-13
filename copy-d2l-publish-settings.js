@@ -15,25 +15,36 @@ var request = require('request');
 var async = require('async');
 var cookieMonster = require('./cookieExtractor');
 
-// main
-function main(callback) {
-    var orgUnitId;
-    var courseId;
-    var accessToken;
+// Export this module
+module.exports = main;
 
+/**
+ * This is the main driving function of the program.  
+ * First, it will get the settings needed to run the program.
+ * Then, it will get the D2L Module data and then format it
+ * into objects that will make it easy to copy to a canvas course.
+ * 
+ * @param {function} callback A Callback function in the form of (error, data) that 
+ *                            can have access to the d2L Module Data Output.
+ *                            
+ * @author Scott Nicholes                           
+ */
+function main(callback) {
     // Get the data we need from the user
-    getDataFromSettings(function (error, data) {
+    getSettings(function (error, data) {
         if (error) {
             console.log('There was an error with the prompting process.');
             console.log('Ending program...');
             return;
         }
 
-        orgUnitId = data.orgUnitId;
-        courseId = data.course_id;
-        accessToken = data.canvasAccessToken;
+        // Save the settings to data variables
+        var orgUnitId = data.orgUnitId;
+        var courseId = data.course_id;
+        var accessToken = data.canvasAccessToken;
 
-        formatModules(orgUnitId, function (error, d2LModuleData) {
+        // GET request and then format the d2L Module Data
+        getD2lModuleData(orgUnitId, function (error, d2LModuleData) {
             if (error) {
                 callback(error, null);
                 return;
@@ -49,14 +60,21 @@ function main(callback) {
     });
 }
 
-function getDataFromSettings(callback) {
+/**
+ * Prompt the user for the settings needed to access the D2L Course.
+ * 
+ * @param {function} callback A function that enables the data to be passed
+ *                            back to the caller.
+ * 
+ * @author Scott Nicholes
+ */
+function getSettings(callback) {
     // Load the settings file
     var settings = fs.readFileSync('auth.json', 'utf8');
 
     // Parse the settings file
     settings = JSON.parse(settings);
 
-    // This is the prompt
     var settingsPrompt = {
         properties: {
             orgUnitId: {
@@ -77,8 +95,7 @@ function getDataFromSettings(callback) {
         }
     }
 
-
-    // Run prompt with the Settings file
+    // Prompt the user for the orgUnitId
     prompt.start();
     prompt.get(settingsPrompt, function (error, response) {
         if (error) {
@@ -88,6 +105,7 @@ function getDataFromSettings(callback) {
         // Save the responses back to the settings
         settings.orgUnitId = response.orgUnitId;
         settings.course_id = response.course_id;
+        settings.canvasAccessToken = response.canvasAccessToken;
         fs.writeFileSync('auth.json', JSON.stringify(settings));
 
         // Send the reponses back to main
@@ -95,21 +113,32 @@ function getDataFromSettings(callback) {
     });
 }
 
-function formatModules(orgUnitId, callback) {
+/**
+ * Fetch the D2L Learning Modules and items.  Then, reformat them
+ * into a structure that can be easily transferred to a Canvas Course.
+ * 
+ * @param {string}   orgUnitId      The ID of the D2L Course to copy from
+ * @param {function} parentCallback The main callback that will return the formatted
+ *                                  D2L Modules and Items.
+ *                                  
+ * @author Scott Nicholes                                 
+ */
+function getD2lModuleData(orgUnitId, parentCallback) {
     // Get all the ids of all the modules
     getModuleIds(orgUnitId, function (error, moduleIds) {
 
         // Get the root modules of the course
         var parentUrl = `https://byui.brightspace.com/d2l/api/le/1.2/${orgUnitId}/content/root/`;
         cookieMonster(parentUrl, function (error, response, body) {
-            var parsedParentModules = JSON.parse(body);
+            var parsedRootModules = JSON.parse(body);
 
-            // Iterate through all the root modules in order to reformat them into a final object
-            async.map(parsedParentModules, function (parentModule, parentCallback) {
+            // Reformat each root module
+            async.map(parsedRootModules, function (parentModule, callback) {
+                // Get all the children of the root modules
                 getModuleData(orgUnitId, parentModule.Id, function (error, childModules) {
                     if (error) {
                         console.error('There was an error with the parent async.map: ' + error);
-                        parentCallback(error, null);
+                        callback(error, null);
                     }
 
                     // Iterate through all the child modules of each root module.
@@ -137,11 +166,11 @@ function formatModules(orgUnitId, callback) {
                     }, function (error, reformattedChildModules) {
                         if (error) {
                             console.error('There was an error in generating the module data: ' + error);
-                            callback(error, null);
+                            parentCallback(error, null);
                         }
 
-                        // Make the format for our final object
-                        var reformattedParentModule = {
+                        // Reformat our root module
+                        var reformattedRootModule = {
                             title: parentModule.Title,
                             id: parentModule.Id,
                             isHidden: parentModule.IsHidden,
@@ -149,21 +178,30 @@ function formatModules(orgUnitId, callback) {
                             children: reformattedChildModules
                         }
 
-                        parentCallback(null, reformattedParentModule);
+                        // Send the reformatted root module back to the map
+                        callback(null, reformattedRootModule);
                     });
                 });
-            }, function (error, reformattedParentModules) {
+            }, function (error, reformattedRootModules) {
                 if (error) {
                     callback(error, null);
                 }
 
                 // Finally, send back the finished product
-                callback(null, reformattedParentModules);
+                parentCallback(null, reformattedRootModules);
             });
         });
     });
 }
 
+/**
+ * This function gets all the ids of all the modules in a D2L course.
+ * 
+ * @param {string}   orgUnitId The ID of the D2L course to access.
+ * @param {function} callback  A function to call in order to send back the data.
+ *                             
+ * @author Scott Nicholes                            
+ */
 function getModuleIds(orgUnitId, callback) {
     // Perform the GET Request
     var url = `https://byui.brightspace.com/d2l/api/le/1.24/${orgUnitId}/content/toc`;
@@ -176,6 +214,7 @@ function getModuleIds(orgUnitId, callback) {
         var modules = JSON.parse(body);
         var moduleIds = []
 
+        // Start the recursive function with the array on top
         recursive(modules.Modules);
         // Recursively search through all the objects, gleaning each moduleId
         function recursive(moduleArray) {
@@ -184,15 +223,28 @@ function getModuleIds(orgUnitId, callback) {
                     if (obj.ModuleId) {
                         moduleIds.push(obj.ModuleId)
                     }
+                    // Call this function again on the array that is found in here
                     recursive(obj.Modules)
-                })
+                });
             }
         }
 
+        // Send back the moduleIds
         callback(null, moduleIds);
     });
 }
 
+/**
+ * This function gets all the memebers of each module it is given.
+ * It then reformats each of the modules to show if they are
+ * a parent or not, and to conform to the final object.
+ * 
+ * @param   {string}   orgUnitId The ID of the D2L Course we are accessing
+ * @param   {string}   moduleId  The ID of the specific Module we are accessing
+ * @param   {function} callback  A function to call in order to send back the data.
+ * 
+ * @author Scott Nicholes
+ */
 function getModuleData(orgUnitId, moduleId, callback) {
     // Make an API call to get the members of the module
     var url = `https://byui.brightspace.com/d2l/api/le/1.2/${orgUnitId}/content/modules/${moduleId}/structure/`;
@@ -231,6 +283,7 @@ function getModuleData(orgUnitId, moduleId, callback) {
         callback(null, reformattedModules);
     });
 }
+
 
 function applyChangesToCanvas(d2LModuleData, courseId, accessToken) {
     // First, get all the ids from the Canvas course
@@ -277,5 +330,3 @@ function applyChangesToCanvas(d2LModuleData, courseId, accessToken) {
     });
 
 }
-
-main();
