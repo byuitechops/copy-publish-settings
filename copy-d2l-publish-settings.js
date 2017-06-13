@@ -40,8 +40,6 @@ function main(callback) {
 
         // Save the settings to data variables
         var orgUnitId = data.orgUnitId;
-        var courseId = data.course_id;
-        var accessToken = data.canvasAccessToken;
 
         // GET request and then format the d2L Module Data
         getD2lModuleData(orgUnitId, function (error, d2LModuleData) {
@@ -61,7 +59,7 @@ function main(callback) {
 }
 
 /**
- * Prompt the user for the settings needed to access the D2L Course.
+ * Prompt the user for the orgUnitId needed to access the D2L Course.
  * 
  * @param {function} callback A function that enables the data to be passed
  *                            back to the caller.
@@ -81,16 +79,6 @@ function getSettings(callback) {
                 description: "Enter D2L Org Unit ID Number to copy from",
                 type: "string",
                 default: settings.orgUnitId
-            },
-            course_id: {
-                description: "Enter Canvas Course_Id to apply settings to",
-                type: "string",
-                default: settings.course_id
-            },
-            canvasAccessToken: {
-                description: "Enter the Canvas Access Token for the course to apply settings to",
-                type: "string",
-                default: settings.canvasAccessToken
             }
         }
     }
@@ -104,8 +92,6 @@ function getSettings(callback) {
 
         // Save the responses back to the settings
         settings.orgUnitId = response.orgUnitId;
-        settings.course_id = response.course_id;
-        settings.canvasAccessToken = response.canvasAccessToken;
         fs.writeFileSync('auth.json', JSON.stringify(settings));
 
         // Send the reponses back to main
@@ -282,51 +268,4 @@ function getModuleData(orgUnitId, moduleId, callback) {
 
         callback(null, reformattedModules);
     });
-}
-
-
-function applyChangesToCanvas(d2LModuleData, courseId, accessToken) {
-    // First, get all the ids from the Canvas course
-    var allItemsUrl = `https://byui.instructure.com/api/v1/courses/${courseId}/modules?include[]=items&per_page=20&access_token=${accessToken}`;
-    request.get(allItemsUrl, function (error, response, body) {
-        body = JSON.parse(body);
-
-        var canvasSum = 0;
-        var d2lSum = 0;
-        var moduleObjects = [];
-        body.forEach(function (module) {
-            var itemIds = [];
-            if (!module.name.includes('Lesson')) {
-                for (var i = 0; i < module.items.length; i++) {
-                    itemIds.push(module.items[i].id);
-                }
-            } else {
-                for (var i = 1; i < module.items.length; i++) {
-                    itemIds.push(module.items[i].id);
-                }
-            }
-            moduleObject = {
-                id: module.id,
-                itemIds: itemIds
-            }
-
-            canvasSum += itemIds.length;
-            moduleObjects.push(moduleObject);
-        });
-        canvasSum += moduleObjects.length;
-
-        d2LModuleData.forEach(function (d2lModule) {
-            d2lModule.children.forEach(function (child) {
-                if (child.isParent) {
-                    d2lSum += child.children.length;
-                }
-            });
-            d2lSum += d2lModule.children.length;
-        })
-        d2lSum += d2LModuleData.length;
-
-        console.log('Canvas Sum of Ids: ' + canvasSum);
-        console.log('d2l Sum of Ids: ' + d2lSum);
-    });
-
 }
